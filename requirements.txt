@@ -6,3 +6,4 @@ giskard
 matplotlib
 litellm
 pandas
+requests
