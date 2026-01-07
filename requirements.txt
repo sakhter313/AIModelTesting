@@ -1,9 +1,4 @@
 streamlit
-langchain
-langchain-openai
-langchain-groq
-giskard
+openai
+groq
 matplotlib
-litellm
-pandas
-requests
