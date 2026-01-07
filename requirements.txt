@@ -4,3 +4,5 @@ langchain-openai
 langchain-groq
 giskard
 matplotlib
+litellm
+pandas
