@@ -230,20 +230,19 @@ if run and selected_models:
             prompt_pack.append(("Mutated", mutate_prompt(custom_prompt)))
 
     total_tasks = len(prompt_pack) * len(selected_models)
-    completed = 0
+    completed = [0]
 
-    def process_task(risk_label, prompt, model_name):
-        nonlocal completed
+    def process_task(risk_label, prompt, model_name, current_prompt_id):
         provider, model = MODELS[model_name]
         response = call_model(provider, model, prompt)
         if response.startswith("[ERROR]"):
             return None
         risks = detect_risks(prompt, response)
         score = judge_score(risks, prompt, response, enable_judge)
-        completed += 1
+        completed[0] += 1
         return {
             "time": datetime.utcnow().strftime("%H:%M:%S"),
-            "prompt_id": prompt_id + 1,  # Increment per task
+            "prompt_id": current_prompt_id,
             "prompt": prompt,
             "model": model_name,
             "risk_types": ", ".join(risks),
@@ -256,14 +255,14 @@ if run and selected_models:
         for risk_label, prompt in prompt_pack:
             prompt_id += 1
             for model_name in selected_models:
-                futures.append(executor.submit(process_task, risk_label, prompt, model_name))
+                futures.append(executor.submit(process_task, risk_label, prompt, model_name, prompt_id))
 
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             if result:
                 rows.append(result)
-            progress_bar.progress(completed / total_tasks)
-            status_text.text(f"Processed {completed}/{total_tasks} tasks...")
+            progress_bar.progress(completed[0] / total_tasks)
+            status_text.text(f"Processed {completed[0]}/{total_tasks} tasks...")
 
     if rows:
         st.session_state.df = pd.DataFrame(rows)
