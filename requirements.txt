@@ -1,4 +1,6 @@
 streamlit
-openai
-groq
-matplotlib
+pandas
+altair
+langchain
+langchain-openai
+langchain-groq
