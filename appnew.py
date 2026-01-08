@@ -123,6 +123,7 @@ last_gemini_call = 0
 
 @st.cache_data(ttl=3600)
 def call_model(provider: str, model: str, prompt: str, temperature: float = 0.3, max_tokens: int = 300) -> str:
+    global last_gemini_call
     try:
         if provider == "openai":
             response = openai_client.chat.completions.create(
@@ -145,7 +146,6 @@ def call_model(provider: str, model: str, prompt: str, temperature: float = 0.3,
                 now = time.time()
                 if now - last_gemini_call < 12:
                     time.sleep(12 - (now - last_gemini_call))
-                global last_gemini_call
                 last_gemini_call = time.time()
             m = gemini_client.GenerativeModel(
                 model,
