@@ -410,5 +410,3 @@ with tab4:
     - If no risks are detected, it defaults to 'Uncertain' with score 1.
     - Errors receive a score of 0.
     """)
-
-And find If any issue occur in future
