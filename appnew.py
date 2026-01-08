@@ -338,84 +338,103 @@ with tab3:
         if vis_df.empty:
             st.info("No successful scans to visualize. All tasks failed.")
         else:
-            # Color Map
-            color_map = {
-                "Prompt Injection": "red",
-                "System Disclosure": "black",
-                "Policy Evasion": "orange",
-                "Jailbreak": "darkred",
-                "Medical Safety": "blue",
-                "Privacy": "purple",
-                "Bias": "brown",
-                "Toxicity": "magenta",
-                "Hallucination": "green",
-                "Uncertain": "gray",
-                "Error": "gray"  # Even if filtered, for completeness
-            }
-
-            # Interactive Model Selection for Scatter
-            st.subheader("📊 Vulnerability Map (Scatter)")
-            selected_model = st.selectbox("Select Model for Scatter Plot", vis_df["model"].unique())
-            mdf = vis_df[vis_df["model"] == selected_model]
-            fig = px.scatter(
-                mdf,
-                x="prompt_id",
-                y="risk_score",
-                color="risk_types",
-                color_discrete_map=color_map,
-                hover_data=["prompt", "response"],
-                size="risk_score"
-            )
-            fig.update_layout(
-                title=f"Vulnerabilities for {selected_model}",
-                yaxis=dict(range=[0, 6]),
-                xaxis_title="Prompt Index",
-                yaxis_title="Risk Score"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Additional Interactive Bar Chart: Vulnerability Count by Risk Type
-            st.subheader("📊 Vulnerability Count by Risk Type")
-            # Explode risk_types for counting
+            # Explode risk_types for better handling
             exploded_df = vis_df.assign(risk_types=vis_df['risk_types'].str.split(', ')).explode('risk_types')
-            bar_data = exploded_df['risk_types'].value_counts().reset_index()
-            bar_data.columns = ['risk_types', 'count']
-            selected_risk = st.multiselect("Filter by Risk Type", bar_data['risk_types'].unique(), default=bar_data['risk_types'].unique())
-            filtered_bar = bar_data[bar_data['risk_types'].isin(selected_risk)]
-            fig_bar = px.bar(
-                filtered_bar,
-                x='risk_types',
-                y='count',
-                color='risk_types',
-                color_discrete_map=color_map
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
 
-            # Additional Box Plot: Risk Scores by Model
-            st.subheader("📊 Risk Scores Distribution by Model")
-            fig_box = px.box(
-                vis_df,
-                x="model",
-                y="risk_score",
-                color="model"
-            )
-            st.plotly_chart(fig_box, use_container_width=True)
+            # Global Filters in Visualizations Tab
+            st.subheader("🔧 Visualization Filters")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                selected_models_vis = st.multiselect("Filter by Models", exploded_df["model"].unique(), default=exploded_df["model"].unique())
+            with col2:
+                selected_risks = st.multiselect("Filter by Risk Types", exploded_df["risk_types"].unique(), default=exploded_df["risk_types"].unique())
+            with col3:
+                min_score, max_score = st.slider("Filter by Risk Score Range", 0, 5, (0, 5))
 
-            # Heatmap for Risk Types per Model
-            st.subheader("🔥 Risk Heatmap")
-            heatmap_data = exploded_df.pivot_table(index="model", columns="risk_types", values="risk_score", aggfunc="count", fill_value=0)
-            fig_heat = px.imshow(
-                heatmap_data,
-                labels=dict(x="Risk Type", y="Model", color="Count"),
-                color_continuous_scale="Reds"
-            )
-            st.plotly_chart(fig_heat, use_container_width=True)
+            # Apply filters
+            filtered_df = exploded_df[
+                (exploded_df["model"].isin(selected_models_vis)) &
+                (exploded_df["risk_types"].isin(selected_risks)) &
+                (exploded_df["risk_score"] >= min_score) &
+                (exploded_df["risk_score"] <= max_score)
+            ]
 
-            # Trend Line
-            st.subheader("📈 Risk Trend Over Time")
-            trend = vis_df.groupby(["time", "model"])["risk_score"].mean().reset_index()
-            fig_trend = px.line(trend, x="time", y="risk_score", color="model", markers=True)
-            st.plotly_chart(fig_trend, use_container_width=True)
+            if filtered_df.empty:
+                st.warning("No data matches the selected filters.")
+            else:
+                # Color Map
+                color_map = {
+                    "Prompt Injection": "red",
+                    "System Disclosure": "black",
+                    "Policy Evasion": "orange",
+                    "Jailbreak": "darkred",
+                    "Medical Safety": "blue",
+                    "Privacy": "purple",
+                    "Bias": "brown",
+                    "Toxicity": "magenta",
+                    "Hallucination": "green",
+                    "Uncertain": "gray",
+                    "Error": "gray"  # Even if filtered, for completeness
+                }
+
+                # Interactive Scatter Plot
+                st.subheader("📊 Vulnerability Map (Scatter)")
+                fig_scatter = px.scatter(
+                    filtered_df,
+                    x="prompt_id",
+                    y="risk_score",
+                    color="risk_types",
+                    facet_col="model",
+                    color_discrete_map=color_map,
+                    hover_data=["prompt", "response"],
+                    size="risk_score"
+                )
+                fig_scatter.update_layout(
+                    title="Vulnerabilities by Model",
+                    yaxis=dict(range=[0, 6]),
+                    xaxis_title="Prompt Index",
+                    yaxis_title="Risk Score"
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+                # Interactive Bar Chart: Vulnerability Count by Risk Type
+                st.subheader("📊 Vulnerability Count by Risk Type")
+                bar_data = filtered_df.groupby(['risk_types', 'model']).size().reset_index(name='count')
+                fig_bar = px.bar(
+                    bar_data,
+                    x='risk_types',
+                    y='count',
+                    color='model',
+                    barmode='group'
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                # Interactive Box Plot: Risk Scores Distribution
+                st.subheader("📊 Risk Scores Distribution")
+                fig_box = px.box(
+                    filtered_df,
+                    x="risk_types",
+                    y="risk_score",
+                    color="model",
+                    hover_data=["prompt_id"]
+                )
+                st.plotly_chart(fig_box, use_container_width=True)
+
+                # Heatmap for Risk Types per Model
+                st.subheader("🔥 Risk Heatmap")
+                heatmap_data = filtered_df.pivot_table(index="model", columns="risk_types", values="risk_score", aggfunc="count", fill_value=0)
+                fig_heat = px.imshow(
+                    heatmap_data,
+                    labels=dict(x="Risk Type", y="Model", color="Count"),
+                    color_continuous_scale="Reds"
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+
+                # Trend Line with Facets
+                st.subheader("📈 Risk Trend Over Time")
+                trend = filtered_df.groupby(["time", "model", "risk_types"])["risk_score"].mean().reset_index()
+                fig_trend = px.line(trend, x="time", y="risk_score", color="risk_types", facet_col="model", markers=True)
+                st.plotly_chart(fig_trend, use_container_width=True)
     else:
         st.info("Run a scan to see visualizations.")
 
