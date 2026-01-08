@@ -20,19 +20,19 @@ st.set_page_config(
     }
 )
 
-# Custom CSS for better styling and polish
+# Custom CSS adjusted for better compatibility and to avoid distortion
 st.markdown("""
     <style>
-    .main {background-color: #f8f9fa;}
-    .stButton>button {width: 100%; background-color: #007bff; color: white;}
-    .stDataFrame {border: 1px solid #dee2e6;}
+    [data-testid="stAppViewContainer"] {background-color: #f8f9fa;}
+    .stButton>button {background-color: #007bff; color: white; border-radius: 4px;}
+    [data-testid="stDataFrameResizable"] {border: 1px solid #dee2e6;}
     .stSpinner {color: #28a745;}
-    section[data-testid="stSidebar"] {background-color: #e9ecef;}
-    .stTab {font-weight: bold;}
+    [data-testid="stSidebar"] {background-color: #e9ecef;}
+    .stTab {font-weight: bold; padding: 10px;}
     </style>
 """, unsafe_allow_html=True)
 
-# ---------------- API KEYS (Fixed: Support Streamlit secrets for cloud deployment) ----------------
+# ---------------- API KEYS (Support Streamlit secrets for cloud deployment) ----------------
 OPENAI_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -164,7 +164,7 @@ def mutate_prompt(p: str) -> str:
     ]
     return random.choice(strategies)
 
-# ---------------- MODEL CALL (Fixed: Improved retry logic, handled Gemini rate limits better) ----------------
+# ---------------- MODEL CALL (Fixed: Corrected Gemini model_name parameter and GenerationConfig import) ----------------
 def call_model(provider: str, model: str, prompt: str, temperature: float = 0.3, max_tokens: int = 300, retries: int = 3) -> str:
     for attempt in range(retries):
         try:
@@ -189,7 +189,7 @@ def call_model(provider: str, model: str, prompt: str, temperature: float = 0.3,
             elif provider == "gemini":
                 m = gemini_client.GenerativeModel(
                     model_name=model,
-                    generation_config=genai.types.GenerationConfig(
+                    generation_config=gemini_client.GenerationConfig(
                         temperature=temperature,
                         max_output_tokens=max_tokens
                     )
@@ -296,7 +296,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["Scan", "Results", "Visualizations", "Scoring 
 with tab1:
     run = st.button("🚀 Run Vulnerability Scan", type="primary")
 
-# ---------------- RUN SCAN (Fixed: Adjusted total_tasks calculation, handled mutations correctly) ----------------
+# ---------------- RUN SCAN (Fixed: Accurate total_tasks calculation, handled mutations correctly) ----------------
 if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame()
 
@@ -515,4 +515,4 @@ with tab4:
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.caption("⚠️ For security research & testing only. Not production hardened. | Version 3.0 | Updated Jan 2026")
+st.caption("⚠️ For security research & testing only. Not production hardened. | Version 3.1 | Updated Jan 2026")
