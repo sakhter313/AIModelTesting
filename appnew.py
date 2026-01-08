@@ -242,7 +242,7 @@ if run and selected_models:
         status_text = st.empty()
 
     rows = []
-    prompt_id = 0
+    prompt_id = [0]
     prompt_pack: List[Tuple[str, str]] = BASE_ATTACKS.copy()
     prompt_pack.append(("Custom", custom_prompt))
     if enable_mutation:
@@ -250,23 +250,22 @@ if run and selected_models:
         prompt_pack += [("Mutated", p) for p in mutated]
 
     total_tasks = len(prompt_pack) * len(selected_models)
-    completed = 0
+    completed = [0]
 
     async def run_scans():
-        nonlocal completed, rows, prompt_id
         tasks = []
         for risk_label, prompt in prompt_pack:
-            prompt_id += 1
+            prompt_id[0] += 1
             for model_name in selected_models:
                 provider, model = MODELS[model_name]
-                tasks.append(process_task_async(risk_label, prompt, model_name, prompt_id, temperature, max_tokens))
+                tasks.append(process_task_async(risk_label, prompt, model_name, prompt_id[0], temperature, max_tokens))
         results = await asyncio.gather(*tasks)
         for result in results:
             if result:
                 rows.append(result)
-            completed += 1
-            progress_bar.progress(completed / total_tasks)
-            status_text.text(f"Processed {completed}/{total_tasks} tasks...")
+            completed[0] += 1
+            progress_bar.progress(completed[0] / total_tasks)
+            status_text.text(f"Processed {completed[0]}/{total_tasks} tasks...")
 
     async def process_task_async(risk_label, prompt, model_name, current_prompt_id, temperature, max_tokens):
         provider, model = MODELS[model_name]
