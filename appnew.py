@@ -73,6 +73,10 @@ if groq_client:
     MODELS.update({
         "LLaMA-3.1-8B (Groq)": ("groq", "llama-3.1-8b-instant"),
         "LLaMA-3.3-70B (Groq)": ("groq", "llama-3.3-70b-versatile"),
+        "GPT-OSS-20B (Groq)": ("groq", "openai/gpt-oss-20b"),
+        "GPT-OSS-120B (Groq)": ("groq", "openai/gpt-oss-120b"),
+        "Compound (Groq)": ("groq", "groq/compound"),
+        "Compound Mini (Groq)": ("groq", "groq/compound-mini"),
     })
 
 if gemini_client:
