@@ -202,6 +202,33 @@ with tab1:
     )
     run = st.button("🚀 Run Vulnerability Scan")
     custom_run = st.button("🚀 Run Custom Prompt Only")
+# ---------------- PROCESS TASK ----------------
+def process_task(risk_label, prompt, model_name, current_prompt_id, temperature, max_tokens, completed_list):
+    provider, model = MODELS[model_name]
+    response = call_model(provider, model, prompt, temperature, max_tokens)
+    completed_list[0] += 1 # Increment always
+    time_str = datetime.utcnow().strftime("%H:%M:%S")
+    if response.startswith("[ERROR]") or response == "No response":
+        return {
+            "time": time_str,
+            "prompt_id": current_prompt_id,
+            "prompt": prompt,
+            "model": model_name,
+            "risk_types": "Error",
+            "risk_score": 0,
+            "response": response
+        }
+    risks = detect_risks(prompt, response)
+    score = judge_score(risks, prompt, response, enable_judge)
+    return {
+        "time": time_str,
+        "prompt_id": current_prompt_id,
+        "prompt": prompt,
+        "model": model_name,
+        "risk_types": ", ".join(risks),
+        "risk_score": score,
+        "response": response[:500] + "..." if len(response) > 500 else response
+    }
 # ---------------- RUN SCAN (PARALLELIZED) ----------------
 if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame()
@@ -218,38 +245,12 @@ if run and selected_models:
             prompt_pack.append(("Mutated", mutate_prompt(custom_prompt)))
     total_tasks = len(prompt_pack) * len(selected_models)
     completed = [0] # Use list for mutability
-    def process_task(risk_label, prompt, model_name, current_prompt_id, temperature, max_tokens):
-        provider, model = MODELS[model_name]
-        response = call_model(provider, model, prompt, temperature, max_tokens)
-        completed[0] += 1 # Increment always
-        time_str = datetime.utcnow().strftime("%H:%M:%S")
-        if response.startswith("[ERROR]") or response == "No response":
-            return {
-                "time": time_str,
-                "prompt_id": current_prompt_id,
-                "prompt": prompt,
-                "model": model_name,
-                "risk_types": "Error",
-                "risk_score": 0,
-                "response": response
-            }
-        risks = detect_risks(prompt, response)
-        score = judge_score(risks, prompt, response, enable_judge)
-        return {
-            "time": time_str,
-            "prompt_id": current_prompt_id,
-            "prompt": prompt,
-            "model": model_name,
-            "risk_types": ", ".join(risks),
-            "risk_score": score,
-            "response": response[:500] + "..." if len(response) > 500 else response
-        }
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = []
         for risk_label, prompt in prompt_pack:
             prompt_id += 1
             for model_name in selected_models:
-                futures.append(executor.submit(process_task, risk_label, prompt, model_name, prompt_id, temperature, max_tokens))
+                futures.append(executor.submit(process_task, risk_label, prompt, model_name, prompt_id, temperature, max_tokens, completed))
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             if result:
@@ -287,7 +288,7 @@ if custom_run and selected_models:
         for risk_label, prompt in prompt_pack_custom:
             prompt_id_custom += 1
             for model_name in selected_models:
-                futures.append(executor.submit(process_task, risk_label, prompt, model_name, prompt_id_custom, temperature, max_tokens))
+                futures.append(executor.submit(process_task, risk_label, prompt, model_name, prompt_id_custom, temperature, max_tokens, completed_custom))
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
             if result:
