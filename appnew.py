@@ -241,13 +241,22 @@ if run and selected_models:
     def process_task(risk_label, prompt, model_name, current_prompt_id, temperature, max_tokens):
         provider, model = MODELS[model_name]
         response = call_model(provider, model, prompt, temperature, max_tokens)
-        completed[0] += 1  # Increment always, even on error
-        if response.startswith("[ERROR]"):
-            return None
+        completed[0] += 1  # Increment always
+        time_str = datetime.utcnow().strftime("%H:%M:%S")
+        if response.startswith("[ERROR]") or response == "No response":
+            return {
+                "time": time_str,
+                "prompt_id": current_prompt_id,
+                "prompt": prompt,
+                "model": model_name,
+                "risk_types": "Error",
+                "risk_score": 0,
+                "response": response
+            }
         risks = detect_risks(prompt, response)
         score = judge_score(risks, prompt, response, enable_judge)
         return {
-            "time": datetime.utcnow().strftime("%H:%M:%S"),
+            "time": time_str,
             "prompt_id": current_prompt_id,
             "prompt": prompt,
             "model": model_name,
@@ -278,11 +287,12 @@ if run and selected_models:
         st.session_state.df = pd.DataFrame(rows)
         with tab1:
             st.success("Scan completed successfully!")
-            if len(rows) < total_tasks:
-                st.warning(f"{total_tasks - len(rows)} tasks failed due to errors.")
+            failed_count = len([r for r in rows if r['risk_types'] == 'Error'])
+            if failed_count > 0:
+                st.warning(f"{failed_count} tasks failed due to errors. Check the Results tab for details.")
     else:
         with tab1:
-            st.error("No valid responses generated. Check API keys and models.")
+            st.error("No responses generated. Check API keys and models.")
 
 # ---------------- RESULTS TAB ----------------
 with tab2:
@@ -305,55 +315,62 @@ with tab3:
     if not st.session_state.df.empty:
         df = st.session_state.df
 
-        # Color Map
-        color_map = {
-            "Prompt Injection": "red",
-            "System Disclosure": "black",
-            "Policy Evasion": "orange",
-            "Jailbreak": "darkred",
-            "Medical Safety": "blue",
-            "Privacy": "purple",
-            "Bias": "brown",
-            "Toxicity": "magenta",
-            "Hallucination": "green",
-            "Uncertain": "gray"
-        }
+        # Filter out errors for visualizations
+        vis_df = df[df['risk_types'] != 'Error']
 
-        # Manhattan Scatter per Model
-        st.subheader("📊 Vulnerability Map (Scatter)")
-        for i, model in enumerate(df["model"].unique()):
-            mdf = df[df["model"] == model]
-            fig = px.scatter(
-                mdf,
-                x="prompt_id",
-                y="risk_score",
-                color="risk_types",
-                color_discrete_map=color_map,
-                hover_data=["prompt", "response"],
-                size="risk_score"
+        if vis_df.empty:
+            st.info("No successful scans to visualize. All tasks failed.")
+        else:
+            # Color Map
+            color_map = {
+                "Prompt Injection": "red",
+                "System Disclosure": "black",
+                "Policy Evasion": "orange",
+                "Jailbreak": "darkred",
+                "Medical Safety": "blue",
+                "Privacy": "purple",
+                "Bias": "brown",
+                "Toxicity": "magenta",
+                "Hallucination": "green",
+                "Uncertain": "gray",
+                "Error": "gray"  # Even if filtered, for completeness
+            }
+
+            # Manhattan Scatter per Model
+            st.subheader("📊 Vulnerability Map (Scatter)")
+            for i, model in enumerate(vis_df["model"].unique()):
+                mdf = vis_df[vis_df["model"] == model]
+                fig = px.scatter(
+                    mdf,
+                    x="prompt_id",
+                    y="risk_score",
+                    color="risk_types",
+                    color_discrete_map=color_map,
+                    hover_data=["prompt", "response"],
+                    size="risk_score"
+                )
+                fig.update_layout(
+                    title=f"Vulnerabilities for {model}",
+                    yaxis=dict(range=[0, 6]),
+                    xaxis_title="Prompt Index",
+                    yaxis_title="Risk Score"
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"scatter_{i}")
+
+            # Heatmap for Risk Types per Model
+            st.subheader("🔥 Risk Heatmap")
+            heatmap_data = vis_df.pivot_table(index="model", columns="risk_types", values="risk_score", aggfunc="count", fill_value=0)
+            fig_heat = px.imshow(
+                heatmap_data,
+                labels=dict(x="Risk Type", y="Model", color="Count"),
+                color_continuous_scale="Reds"
             )
-            fig.update_layout(
-                title=f"Vulnerabilities for {model}",
-                yaxis=dict(range=[0, 6]),
-                xaxis_title="Prompt Index",
-                yaxis_title="Risk Score"
-            )
-            st.plotly_chart(fig, use_container_width=True, key=f"scatter_{i}")
+            st.plotly_chart(fig_heat, use_container_width=True)
 
-        # Heatmap for Risk Types per Model
-        st.subheader("🔥 Risk Heatmap")
-        heatmap_data = df.pivot_table(index="model", columns="risk_types", values="risk_score", aggfunc="count", fill_value=0)
-        fig_heat = px.imshow(
-            heatmap_data,
-            labels=dict(x="Risk Type", y="Model", color="Count"),
-            color_continuous_scale="Reds"
-        )
-        st.plotly_chart(fig_heat, use_container_width=True)
-
-        # Trend Line
-        st.subheader("📈 Risk Trend Over Time")
-        trend = df.groupby(["time", "model"])["risk_score"].mean().reset_index()
-        fig_trend = px.line(trend, x="time", y="risk_score", color="model", markers=True)
-        st.plotly_chart(fig_trend, use_container_width=True)
+            # Trend Line
+            st.subheader("📈 Risk Trend Over Time")
+            trend = vis_df.groupby(["time", "model"])["risk_score"].mean().reset_index()
+            fig_trend = px.line(trend, x="time", y="risk_score", color="model", markers=True)
+            st.plotly_chart(fig_trend, use_container_width=True)
     else:
         st.info("Run a scan to see visualizations.")
