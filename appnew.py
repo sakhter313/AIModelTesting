@@ -147,7 +147,7 @@ def call_model(provider: str, model: str, prompt: str, temperature: float = 0.3,
                 )
             )
             response = m.generate_content(prompt)
-            return response.text.strip()  # Removed fixed sleep – free tier now has very low daily limits (~20/day)
+            return response.text.strip()
     except Exception as e:
         error_msg = str(e)
         if "rate_limit" in error_msg.lower() or "429" in error_msg:
@@ -213,7 +213,7 @@ max_tokens = st.sidebar.slider("Max Tokens per Response", 100, 1000, 300)
 
 st.sidebar.warning("""
 **Rate Limit Note (Jan 2026)**:
-- Groq free/on-demand: ~250 requests/day per model (Compound/Mini often lower), 100k tokens/day for some.
+- Groq free/on-demand: ~250 requests/day per model (Compound/Mini often lower), 100k tokens/day.
 - Gemini free: ~20 requests/day total.
 Select 1-2 models + disable mutations for free tier testing. Upgrade for higher limits.
 """)
@@ -276,7 +276,7 @@ def run_scan(prompt_pack: List[Tuple[str, str]], is_custom: bool = False):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    if sequential_mode or total_tasks > 50:  # Auto-sequential for large runs
+    if sequential_mode or total_tasks > 50:
         for risk_label, prompt in prompt_pack:
             prompt_id += 1
             for model_name in selected_models:
@@ -285,7 +285,7 @@ def run_scan(prompt_pack: List[Tuple[str, str]], is_custom: bool = False):
                     rows.append(result)
                 progress_bar.progress(completed[0] / total_tasks)
                 status_text.text(f"Processed {completed[0]}/{total_tasks} tasks...")
-                time.sleep(1)  # Gentle delay for rate limits
+                time.sleep(1)  # Gentle delay to respect rate limits
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = []
@@ -305,23 +305,43 @@ def run_scan(prompt_pack: List[Tuple[str, str]], is_custom: bool = False):
 
     if rows:
         df = pd.DataFrame(rows)
-        rate_limit_count = len([r for r in rows if "Rate Limit" in r['risk_types']])
+        rate_limit_count = len([r for r in rows if r['risk_types'] == 'Rate Limit'])
         error_count = len([r for r in rows if r['risk_types'] == 'Error'])
         st.success("Scan completed!")
         if rate_limit_count > 0:
             st.error(f"{rate_limit_count} rate limit errors – reduce models/prompts or upgrade API tier.")
         if error_count > 0:
             st.warning(f"{error_count} other errors.")
-        
+
         if is_custom:
             st.subheader("📋 Custom Prompt Results")
             st.dataframe(df, use_container_width=True)
-            vis_df = df[df['risk_types'] != 'Error']
-            if not vis_df.empty and 'Rate Limit' not in vis_df['risk_types'].values:
-                color_map = { ... }  # (same as before)
+
+            # Custom visualization
+            vis_df_custom = df[(df['risk_types'] != 'Error') & (df['risk_types'] != 'Rate Limit')]
+            if not vis_df_custom.empty:
+                color_map = {
+                    "Prompt Injection": "red",
+                    "System Disclosure": "black",
+                    "Policy Evasion": "orange",
+                    "Jailbreak": "darkred",
+                    "Medical Safety": "blue",
+                    "Privacy": "purple",
+                    "Bias": "brown",
+                    "Toxicity": "magenta",
+                    "Hallucination": "green",
+                    "Uncertain": "gray",
+                }
                 st.subheader("📊 Custom Vulnerability Visualization")
-                fig_custom = px.bar(vis_df, x="model", y="risk_score", color="risk_types", color_discrete_map=color_map,
-                                    hover_data=["prompt", "response"], title="Risk Scores per Model")
+                fig_custom = px.bar(
+                    vis_df_custom,
+                    x="model",
+                    y="risk_score",
+                    color="risk_types",
+                    color_discrete_map=color_map,
+                    hover_data=["prompt", "response"],
+                    title="Risk Scores per Model for Custom Prompt"
+                )
                 st.plotly_chart(fig_custom, use_container_width=True)
         else:
             st.session_state.df = df
@@ -343,5 +363,89 @@ if custom_run and selected_models:
                 prompt_pack_custom.append(("Mutated", mutate_prompt(custom_prompt)))
         run_scan(prompt_pack_custom, is_custom=True)
 
-# ---------------- RESULTS / VISUALIZATIONS / SCORING TABS (unchanged) ----------------
-# (Keep the rest of your original code for tab2, tab3, tab4 exactly as before)
+# ---------------- RESULTS TAB ----------------
+with tab2:
+    if not st.session_state.df.empty:
+        st.subheader("📋 Vulnerability Findings")
+        st.dataframe(st.session_state.df, use_container_width=True)
+        csv = st.session_state.df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Results as CSV",
+            data=csv,
+            file_name="llm_vulnerabilities.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Run a scan to see results.")
+
+# ---------------- VISUALIZATIONS TAB ----------------
+with tab3:
+    if not st.session_state.df.empty:
+        df = st.session_state.df
+        vis_df = df[(df['risk_types'] != 'Error') & (df['risk_types'] != 'Rate Limit')]
+        if vis_df.empty:
+            st.info("No successful scans to visualize.")
+        else:
+            color_map = {
+                "Prompt Injection": "red",
+                "System Disclosure": "black",
+                "Policy Evasion": "orange",
+                "Jailbreak": "darkred",
+                "Medical Safety": "blue",
+                "Privacy": "purple",
+                "Bias": "brown",
+                "Toxicity": "magenta",
+                "Hallucination": "green",
+                "Uncertain": "gray",
+            }
+            st.subheader("📊 Vulnerability Map (Scatter)")
+            for i, model in enumerate(vis_df["model"].unique()):
+                mdf = vis_df[vis_df["model"] == model]
+                fig = px.scatter(
+                    mdf,
+                    x="prompt_id",
+                    y="risk_score",
+                    color="risk_types",
+                    color_discrete_map=color_map,
+                    hover_data=["prompt", "response"],
+                    size="risk_score"
+                )
+                fig.update_layout(
+                    title=f"Vulnerabilities for {model}",
+                    yaxis=dict(range=[0, 6]),
+                    xaxis_title="Prompt Index",
+                    yaxis_title="Risk Score"
+                )
+                st.plotly_chart(fig, use_container_width=True, key=f"scatter_{i}")
+
+            st.subheader("🔥 Risk Heatmap")
+            heatmap_data = vis_df.pivot_table(index="model", columns="risk_types", values="risk_score", aggfunc="count", fill_value=0)
+            fig_heat = px.imshow(
+                heatmap_data,
+                labels=dict(x="Risk Type", y="Model", color="Count"),
+                color_continuous_scale="Reds"
+            )
+            st.plotly_chart(fig_heat, use_container_width=True)
+
+            st.subheader("📈 Risk Trend Over Time")
+            trend = vis_df.groupby(["time", "model"])["risk_score"].mean().reset_index()
+            fig_trend = px.line(trend, x="time", y="risk_score", color="model", markers=True)
+            st.plotly_chart(fig_trend, use_container_width=True)
+    else:
+        st.info("Run a scan to see visualizations.")
+
+# ---------------- SCORING DETAILS TAB ----------------
+with tab4:
+    st.subheader("🔍 Risk Scoring Details")
+    st.markdown("""
+    ### How Risk Scores Are Calculated
+    - **Heuristic Scoring**: Each detected risk type has a predefined score based on severity:
+    """)
+    scores_df = pd.DataFrame(list(RISK_SCORES.items()), columns=["Risk Type", "Score"])
+    st.dataframe(scores_df, use_container_width=True)
+    st.markdown("""
+    - The base score is the maximum score from the detected risks.
+    - **LLM-as-Judge**: If enabled and Gemini is available, an LLM evaluates the response for a custom score (1-5).
+    - If no risks are detected, it defaults to 'Uncertain' with score 1.
+    - Errors and rate limits receive a score of 0.
+    """)
