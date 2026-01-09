@@ -276,6 +276,13 @@ with tab2:
             st.session_state.df.to_csv(index=False),
             "llm_vulnerabilities.csv"
         )
+        # New: Separate table for custom prompt results
+        st.subheader("Custom Prompt Results")
+        custom_df = st.session_state.df[st.session_state.df['prompt_type'] == 'Custom']
+        if not custom_df.empty:
+            st.dataframe(custom_df, use_container_width=True)
+        else:
+            st.info("No custom prompt results available.")
 
 # ================================================
 # VISUALIZATIONS
@@ -349,6 +356,22 @@ with tab3:
             labels={"vulnerability_status": "Status"}
         )
         st.plotly_chart(vuln_bar, use_container_width=True)
+
+        # New: Chart based on custom prompt in Visualizations tab
+        st.subheader("Custom Prompt Visualizations")
+        custom_df = df[df['prompt_type'] == 'Custom']
+        if not custom_df.empty:
+            custom_bar = px.bar(
+                custom_df,
+                x="model",
+                y="risk_score",
+                color="risk_types",
+                title="📊 Risk Scores for Custom Prompt per Model",
+                labels={"risk_types": "Risk Types"}
+            )
+            st.plotly_chart(custom_bar, use_container_width=True)
+        else:
+            st.info("No custom prompt data available for visualization.")
 
 # ================================================
 # SCORING DETAILS
