@@ -22,7 +22,7 @@ st.set_page_config(
 # Reset Scan tab styles to default
 st.markdown("""
 <style>
-.stApp { background-color: #f0f2f6; }
+.stApp { background-color: #f7f7f7; }
 .stButton>button { background-color: #4CAF50; color: white; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
