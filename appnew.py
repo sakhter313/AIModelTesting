@@ -9,7 +9,6 @@ import concurrent.futures
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
 # =========================================================
 # PAGE CONFIG
@@ -20,6 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Reset Scan tab styles to default
 st.markdown("""
 <style>
 .stApp { background-color: #f0f2f6; }
@@ -111,7 +111,7 @@ def call_model(provider, model, prompt, temperature=0.3, max_tokens=300):
             return r.choices[0].message.content.strip()
         if provider == "gemini":
             model_obj = gemini_client.GenerativeModel(model)
-            time.sleep(2)  # pacing for free tier
+            time.sleep(2)
             return model_obj.generate_content(prompt).text.strip()
     except Exception as e:
         return f"[ERROR] {e}"
@@ -255,33 +255,48 @@ with tab2:
         st.download_button("Download CSV", df.to_csv(index=False), "llm_vulnerabilities.csv")
 
 # =========================================================
-# VISUALIZATIONS TAB (Enhanced + Colorful)
+# VISUALIZATIONS TAB (Gradient + Color-coded Prompt Types)
 # =========================================================
 with tab3:
     if not st.session_state.df.empty:
         df = st.session_state.df.copy()
 
-        prompt_type_colors = {"Custom Prompt": "#00CC96", "Mutated Custom": "#FFA500", "Baseline Attack": "#636EFA"}
+        prompt_type_colors = {
+            "Custom Prompt": "#00FF96",   # Green
+            "Mutated Custom": "#FFA500",  # Orange
+            "Baseline Attack": "#6366FA"  # Blue
+        }
 
-        # Scatter
-        st.subheader("📊 Vulnerability Scatter")
+        # ----------------- Scatter with gradient -----------------
+        st.subheader("📊 Vulnerability Scatter (Gradient by Risk Score)")
+
+        max_risk = df['risk_score'].max() or 1
+        df['marker_color'] = df.apply(
+            lambda row: f'rgba({int(int(prompt_type_colors[row["prompt_type"]][1:3],16) * row["risk_score"]/max_risk)},'
+                        f'{int(int(prompt_type_colors[row["prompt_type"]][3:5],16) * row["risk_score"]/max_risk)},'
+                        f'{int(int(prompt_type_colors[row["prompt_type"]][5:7],16) * row["risk_score"]/max_risk)},0.9)', axis=1
+        )
+
         scatter = px.scatter(
             df,
             x="prompt_id",
             y="risk_score",
             color="prompt_type",
             size="risk_score",
-            color_discrete_map=prompt_type_colors,
             hover_data=["model", "risk_types", "prompt"],
-            title="Vulnerability Scores by Prompt Type",
+            title="Vulnerability Scores by Prompt Type (Gradient by Risk Score)",
             labels={"prompt_id": "Prompt Index", "risk_score": "Risk Score", "prompt_type": "Prompt Type"},
-            template="plotly_dark"
+            template="plotly_white",
         )
-        scatter.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
-        scatter.update_layout(yaxis=dict(range=[0, 6]), legend=dict(title="Prompt Type", orientation="h", x=0.3, y=1.05))
+
+        scatter.update_traces(marker=dict(color=df['marker_color'], line=dict(width=1, color='DarkSlateGrey')))
+        scatter.update_layout(
+            yaxis=dict(range=[0, 6]),
+            legend=dict(title="Prompt Type", orientation="h", x=0.3, y=1.05)
+        )
         st.plotly_chart(scatter, use_container_width=True)
 
-        # Heatmap
+        # ----------------- Heatmap -----------------
         st.subheader("🔥 Heatmap: Model & Prompt Type vs Risk Type")
         heatmap_data = df.pivot_table(
             index=["model","prompt_type"],
@@ -293,15 +308,15 @@ with tab3:
         heatmap_fig = px.imshow(
             heatmap_data,
             text_auto=True,
-            color_continuous_scale="YlOrRd",
+            color_continuous_scale="Viridis",
             labels={"x":"Risk Type","y":"Model & Prompt Type","color":"Count"},
             title="Heatmap of Risk Counts",
-            template="plotly_dark",
+            template="plotly_white",
             aspect="auto"
         )
         st.plotly_chart(heatmap_fig, use_container_width=True)
 
-        # Trend line
+        # ----------------- Trend line -----------------
         st.subheader("📈 Risk Trend Over Time")
         trend = df.groupby(["time","prompt_type"])["risk_score"].mean().reset_index()
         trend_fig = px.line(
@@ -312,26 +327,11 @@ with tab3:
             color_discrete_map=prompt_type_colors,
             markers=True,
             title="Average Risk Score Trend Over Time",
-            template="plotly_dark"
+            template="plotly_white"
         )
         trend_fig.update_traces(selector=dict(name="Custom Prompt"), line=dict(width=4))
         trend_fig.update_layout(yaxis=dict(range=[0,6]), legend=dict(title="Prompt Type"))
         st.plotly_chart(trend_fig, use_container_width=True)
-
-        # Pie chart
-        st.subheader("🧩 Risk Type Distribution")
-        pie_df = df.groupby(["prompt_type","risk_types"])["risk_score"].count().reset_index()
-        pie_fig = px.pie(
-            pie_df,
-            names="risk_types",
-            values="risk_score",
-            color="prompt_type",
-            color_discrete_map=prompt_type_colors,
-            title="Risk Distribution by Prompt Type",
-            template="plotly_dark",
-            hole=0.3
-        )
-        st.plotly_chart(pie_fig, use_container_width=True)
 
 # =========================================================
 # SCORING DETAILS
