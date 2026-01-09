@@ -6,3 +6,4 @@ groq
 google-generativeai
 datasets
 huggingface-hub
+openai
