@@ -29,50 +29,35 @@ st.markdown("""
 # ================================================
 # API KEYS
 # ================================================
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-HF_KEY = os.getenv("HF_API_KEY")  # Hugging Face API key
-
-openai_client = None
 groq_client = None
-hf_client = None
-
-# --------- Initialize clients ----------
-if OPENAI_KEY:
-    try:
-        from openai import OpenAI
-        openai_client = OpenAI(api_key=OPENAI_KEY)
-    except Exception:
-        st.warning("OpenAI SDK failed to import.")
 
 if GROQ_KEY:
     try:
         from groq import Groq
         groq_client = Groq(api_key=GROQ_KEY)
     except Exception:
-        st.warning("Groq SDK failed to import.")
+        st.warning("Groq SDK failed to import or authenticate.")
 
+# Hugging Face (optional)
+HF_KEY = os.getenv("HUGGINGFACE_API_KEY")
+hf_client = None
 if HF_KEY:
-    try:
-        from transformers import pipeline
-        hf_client = pipeline("text-generation", model="gpt2", device=-1)  # CPU
-    except Exception:
-        st.warning("Hugging Face pipeline failed to import.")
+    from transformers import pipeline
+    hf_client = pipeline("text-generation", model="gpt2", device=-1)
+
+if not groq_client and not hf_client:
+    st.error("No models detected. Please provide Groq or Hugging Face API keys.")
+    st.stop()
 
 # ================================================
 # MODELS
 # ================================================
 MODELS = {}
-if openai_client:
-    MODELS["GPT-3.5-Turbo (OpenAI Free)"] = ("openai", "gpt-3.5-turbo")
 if groq_client:
-    MODELS["LLaMA-3.1-8B (Groq Lite)"] = ("groq", "llama-3.1-8b-instant")
+    MODELS["LLaMA-3.1-8B Lite (Groq)"] = ("groq", "llama-3.1-8b-instant")
 if hf_client:
-    MODELS["GPT-2 (Hugging Face)"] = ("hf", "gpt2")  # lightweight
-
-if not MODELS:
-    st.error("No API keys detected. Please set your API keys.")
-    st.stop()
+    MODELS["GPT-2 (HF Lite)"] = ("hf", "gpt2")
 
 # ================================================
 # RED TEAM PROMPTS
@@ -101,15 +86,6 @@ def mutate_prompt(prompt: str) -> str:
 # ================================================
 def call_model(provider, model, prompt, temperature=0.3, max_tokens=256):
     try:
-        if provider == "openai":
-            r = openai_client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return r.choices[0].message.content.strip()
-
         if provider == "groq":
             r = groq_client.chat.completions.create(
                 model=model,
@@ -118,14 +94,11 @@ def call_model(provider, model, prompt, temperature=0.3, max_tokens=256):
                 max_tokens=max_tokens,
             )
             return r.choices[0].message.content.strip()
-
-        if provider == "hf":
+        elif provider == "hf":
             r = hf_client(prompt, max_new_tokens=max_tokens, do_sample=True, temperature=temperature)
             return r[0]['generated_text'].strip()
-
     except Exception as e:
         return f"[ERROR] {e}"
-
     return "No response"
 
 # ================================================
@@ -209,6 +182,7 @@ if run:
         response = call_model(provider, model, prompt, temperature)
         risks = detect_risks(prompt, response)
         score = score_risks(risks)
+        prompt_type = "Custom" if prompt == custom_prompt else ("Mutated" if "Mutated" in prompt else "Baseline")
         return {
             "time": datetime.utcnow().strftime("%H:%M:%S"),
             "prompt_id": pid,
@@ -217,7 +191,7 @@ if run:
             "risk_types": ", ".join(risks),
             "risk_score": score,
             "response": response[:500],
-            "prompt_type": "Custom" if prompt == custom_prompt else ("Mutated" if "Mutated" in prompt else "Baseline")
+            "prompt_type": prompt_type
         }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -236,7 +210,7 @@ if run:
     st.session_state.df = pd.DataFrame(rows)
     st.success("Scan completed successfully!")
 
-    # Summary card: Highest risk for custom prompt
+    # Summary card for custom prompt
     custom_df = st.session_state.df[st.session_state.df['prompt_type'] == 'Custom']
     if not custom_df.empty:
         max_risk = custom_df['risk_score'].max()
@@ -260,35 +234,45 @@ with tab2:
 with tab3:
     if not st.session_state.df.empty:
         df = st.session_state.df.copy()
-
-        # Dynamic gradient + color by prompt type
-        base_colors = {"Baseline": "lightblue", "Mutated": "orange", "Custom": "red"}
         max_risk = df['risk_score'].max()
 
+        # Scatter with gradient + size
+        color_map = {"Baseline": "lightblue", "Mutated": "orange", "Custom": "red"}
         scatter = px.scatter(
             df,
             x="prompt_id",
             y="risk_score",
             color="prompt_type",
             size="risk_score",
-            size_max=30,
-            hover_data=["model", "prompt", "response", "risk_types"],
-            color_discrete_map=base_colors
+            size_max=35,
+            color_discrete_map=color_map,
+            hover_data=["model", "prompt", "response", "risk_types"]
         )
-
         scatter.update_traces(
             marker=dict(
                 sizemode='area',
-                opacity=df['risk_score'] / max_risk * 0.8 + 0.2
+                opacity=df['risk_score']/max_risk*0.8 + 0.2
             )
         )
         scatter.update_layout(
-            title="LLM Vulnerabilities per Prompt Type",
+            title="🔥 LLM Vulnerabilities Scatter",
             xaxis_title="Prompt Index",
             yaxis_title="Risk Score",
             legend_title="Prompt Type"
         )
         st.plotly_chart(scatter, width='stretch')
+
+        # Line chart for risk trend per model
+        trend = df.groupby(["prompt_id","model"])["risk_score"].mean().reset_index()
+        line = px.line(
+            trend,
+            x="prompt_id",
+            y="risk_score",
+            color="model",
+            markers=True,
+            title="📈 Risk Trend per Model"
+        )
+        st.plotly_chart(line, width='stretch')
 
         # Heatmap of counts per model/risk type
         heatmap_data = df.pivot_table(
@@ -302,7 +286,8 @@ with tab3:
             heatmap_data,
             color_continuous_scale='Viridis',
             labels=dict(x="Risk Type", y="Model", color="Count"),
-            text_auto=True
+            text_auto=True,
+            title="🗺️ Vulnerability Heatmap"
         )
         st.plotly_chart(heatmap, width='stretch')
 
@@ -310,7 +295,4 @@ with tab3:
 # SCORING DETAILS
 # ================================================
 with tab4:
-    st.dataframe(
-        pd.DataFrame(RISK_SCORES.items(), columns=["Risk Type", "Score"]),
-        width='stretch'
-    )
+    st.dataframe(pd.DataFrame(RISK_SCORES.items(), columns=["Risk Type","Score"]), width='stretch')
