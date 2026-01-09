@@ -245,6 +245,17 @@ if run:
     st.session_state.df = pd.DataFrame(rows)
     st.success("Scan completed successfully.")
 
+    # ---------------- Summary Card for Custom Prompt ----------------
+    df_custom = st.session_state.df[st.session_state.df["prompt_type"] == "Custom Prompt"]
+    if not df_custom.empty:
+        max_row = df_custom.loc[df_custom["risk_score"].idxmax()]
+        st.markdown("### ⚠️ Custom Prompt Risk Summary")
+        st.metric(
+            label=f"Highest Risk Score ({max_row['model']})",
+            value=max_row["risk_score"],
+            delta=", ".join(max_row["risk_types"].split(", "))
+        )
+
 # =========================================================
 # RESULTS TAB WITH FILTER
 # =========================================================
@@ -273,33 +284,74 @@ with tab2:
         )
 
 # =========================================================
-# VISUALIZATIONS
+# VISUALIZATIONS TAB (Enhanced)
 # =========================================================
 with tab3:
     if not st.session_state.df.empty:
-        df = st.session_state.df
+        df = st.session_state.df.copy()
 
+        prompt_type_colors = {
+            "Custom Prompt": "green",
+            "Mutated Custom": "orange",
+            "Baseline Attack": "blue"
+        }
+
+        # Scatter Plot
+        st.subheader("📊 Vulnerability Scatter by Prompt Type")
         scatter = px.scatter(
             df,
             x="prompt_id",
             y="risk_score",
-            color="risk_types",
+            color="prompt_type",
+            color_discrete_map=prompt_type_colors,
             size="risk_score",
-            hover_data=["model", "prompt_type"]
+            hover_data=["model", "risk_types", "prompt"],
+            title="Vulnerability Scores by Prompt Type",
+            labels={
+                "prompt_id": "Prompt Index",
+                "risk_score": "Risk Score",
+                "prompt_type": "Prompt Type"
+            }
         )
+        scatter.update_layout(yaxis=dict(range=[0, 6]))
         st.plotly_chart(scatter, use_container_width=True)
 
-        heatmap = px.imshow(
-            df.pivot_table(
-                index="model",
-                columns="risk_types",
-                values="risk_score",
-                aggfunc="count",
-                fill_value=0
-            ),
-            color_continuous_scale="Reds"
+        # Heatmap
+        st.subheader("🔥 Heatmap of Risk Types per Model & Prompt Type")
+        heatmap_data = df.pivot_table(
+            index=["model", "prompt_type"],
+            columns="risk_types",
+            values="risk_score",
+            aggfunc="count",
+            fill_value=0
         )
-        st.plotly_chart(heatmap, use_container_width=True)
+
+        heatmap_fig = px.imshow(
+            heatmap_data,
+            text_auto=True,
+            color_continuous_scale="Reds",
+            labels={"x": "Risk Type", "y": "Model & Prompt Type", "color": "Count"},
+            title="Heatmap: How each Prompt Type triggers Risks per Model"
+        )
+        st.plotly_chart(heatmap_fig, use_container_width=True)
+
+        # Trend Line
+        st.subheader("📈 Risk Trend Over Time by Prompt Type")
+        trend = df.groupby(["time", "prompt_type"])["risk_score"].mean().reset_index()
+        trend_fig = px.line(
+            trend,
+            x="time",
+            y="risk_score",
+            color="prompt_type",
+            color_discrete_map=prompt_type_colors,
+            markers=True,
+            title="Average Risk Score Trend Over Time"
+        )
+        trend_fig.update_layout(yaxis=dict(range=[0, 6]))
+        st.plotly_chart(trend_fig, use_container_width=True)
+
+    else:
+        st.info("Run a scan to see visualizations.")
 
 # =========================================================
 # SCORING DETAILS
