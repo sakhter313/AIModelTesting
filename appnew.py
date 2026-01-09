@@ -14,12 +14,11 @@ import plotly.express as px
 # PAGE CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="LLM Red-Team & Vulnerability Scanner",
+    page_title="LLM Red-Team & Vulnerability Scanner (Demo with Groq)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Reset Scan tab styles to default
 st.markdown("""
 <style>
 .stApp { background-color: #f7f7f7; }
@@ -56,14 +55,14 @@ if GEMINI_KEY:
 # =========================================================
 MODELS = {}
 if openai_client:
-    MODELS["GPT-4o-mini (OpenAI)"] = ("openai", "gpt-4o-mini")
+    MODELS["GPT-3.5-Turbo (OpenAI Free)"] = ("openai", "gpt-3.5-turbo")
 if groq_client:
     MODELS["LLaMA-3.1-8B (Groq)"] = ("groq", "llama-3.1-8b-instant")
 if gemini_client:
-    MODELS["Gemini-1.5-Flash (FREE)"] = ("gemini", "models/gemini-1.5-flash")
+    MODELS["Gemini-1.5-Flash (Google Free)"] = ("gemini", "models/gemini-1.5-flash")
 
 if not MODELS:
-    st.error("No API keys detected. Please set your API keys.")
+    st.error("No API keys detected. Set OpenAI, Groq, or Gemini keys.")
     st.stop()
 
 # =========================================================
@@ -101,6 +100,7 @@ def call_model(provider, model, prompt, temperature=0.3, max_tokens=300):
                 max_tokens=max_tokens,
             )
             return r.choices[0].message.content.strip()
+
         if provider == "groq":
             r = groq_client.chat.completions.create(
                 model=model,
@@ -109,12 +109,15 @@ def call_model(provider, model, prompt, temperature=0.3, max_tokens=300):
                 max_tokens=max_tokens,
             )
             return r.choices[0].message.content.strip()
+
         if provider == "gemini":
             model_obj = gemini_client.GenerativeModel(model)
-            time.sleep(2)
+            time.sleep(2)  # free-tier pacing
             return model_obj.generate_content(prompt).text.strip()
+
     except Exception as e:
         return f"[ERROR] {e}"
+
     return "No response"
 
 # =========================================================
@@ -162,7 +165,7 @@ temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.3)
 # =========================================================
 # MAIN UI
 # =========================================================
-st.title("🛡️ LLM Red-Team & Vulnerability Scanner")
+st.title("🛡️ LLM Red-Team & Vulnerability Scanner (Demo with Groq)")
 tab1, tab2, tab3, tab4 = st.tabs(["Scan", "Results", "Visualizations", "Scoring"])
 
 with tab1:
@@ -255,7 +258,7 @@ with tab2:
         st.download_button("Download CSV", df.to_csv(index=False), "llm_vulnerabilities.csv")
 
 # =========================================================
-# VISUALIZATIONS TAB (Gradient + Color-coded Prompt Types)
+# VISUALIZATIONS TAB (Gradient + Dynamic Size & Color)
 # =========================================================
 with tab3:
     if not st.session_state.df.empty:
@@ -267,29 +270,24 @@ with tab3:
             "Baseline Attack": "#6366FA"  # Blue
         }
 
-        # ----------------- Scatter with gradient -----------------
-        st.subheader("📊 Vulnerability Scatter (Gradient by Risk Score)")
-
+        # ----------------- Scatter with dynamic size and gradient -----------------
+        st.subheader("📊 Vulnerability Scatter (Size & Gradient by Risk Score)")
         max_risk = df['risk_score'].max() or 1
-        df['marker_color'] = df.apply(
-            lambda row: f'rgba({int(int(prompt_type_colors[row["prompt_type"]][1:3],16) * row["risk_score"]/max_risk)},'
-                        f'{int(int(prompt_type_colors[row["prompt_type"]][3:5],16) * row["risk_score"]/max_risk)},'
-                        f'{int(int(prompt_type_colors[row["prompt_type"]][5:7],16) * row["risk_score"]/max_risk)},0.9)', axis=1
-        )
+        df['marker_size'] = df['risk_score'] * 10 + 10  # dynamic size
+        df['marker_color'] = df['risk_score'].apply(lambda r: f'rgba(255, {255-int(r/max_risk*255)}, 0, 0.9)')  # red-yellow gradient
 
         scatter = px.scatter(
             df,
             x="prompt_id",
             y="risk_score",
             color="prompt_type",
-            size="risk_score",
+            size="marker_size",
             hover_data=["model", "risk_types", "prompt"],
-            title="Vulnerability Scores by Prompt Type (Gradient by Risk Score)",
+            title="Vulnerability Scores by Prompt Type (Dynamic Size & Gradient)",
             labels={"prompt_id": "Prompt Index", "risk_score": "Risk Score", "prompt_type": "Prompt Type"},
             template="plotly_white",
         )
-
-        scatter.update_traces(marker=dict(color=df['marker_color'], line=dict(width=1, color='DarkSlateGrey')))
+        scatter.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')))
         scatter.update_layout(
             yaxis=dict(range=[0, 6]),
             legend=dict(title="Prompt Type", orientation="h", x=0.3, y=1.05)
@@ -329,7 +327,6 @@ with tab3:
             title="Average Risk Score Trend Over Time",
             template="plotly_white"
         )
-        trend_fig.update_traces(selector=dict(name="Custom Prompt"), line=dict(width=4))
         trend_fig.update_layout(yaxis=dict(range=[0,6]), legend=dict(title="Prompt Type"))
         st.plotly_chart(trend_fig, use_container_width=True)
 
