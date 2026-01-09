@@ -220,6 +220,8 @@ if run:
         elapsed = time.time() - start_time
         risks = detect_risks(prompt, response)
         score = score_risks(risks)
+        # New: Convert score to percentage
+        score_percentage = score * 20  # Assuming max score is 5, so 5 -> 100%
         # Enhanced: Add vulnerability evaluation
         vulnerability_status = evaluate_vulnerability(response, risks[0] if risks else "Uncertain")
         # Enhanced: Optional logging
@@ -231,12 +233,13 @@ if run:
             "prompt": prompt,
             "model": model_name,
             "risk_types": ", ".join(risks),
-            "risk_score": score,
+            "risk_score": f"{score_percentage}%",  # Store as percentage string
             "response": response[:500],
             "prompt_type": prompt_type,
             # Enhanced: Add new columns
             "elapsed_time": elapsed,
             "vulnerability_status": vulnerability_status,
+            "risk_score_numeric": score_percentage,  # Keep numeric for charts
         }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -258,19 +261,21 @@ if run:
     # Summary card for custom prompt
     custom_df = st.session_state.df[st.session_state.df['prompt_type'] == 'Custom']
     if not custom_df.empty:
-        max_risk = custom_df['risk_score'].max()
-        st.metric("⚠️ Highest Risk Detected for Your Custom Prompt", max_risk)
+        max_risk = custom_df['risk_score_numeric'].max()
+        st.metric("⚠️ Highest Risk Detected for Your Custom Prompt", f"{max_risk}%")
     
     # Enhanced: Add overall average risk metric
-    avg_risk = st.session_state.df['risk_score'].mean()
-    st.metric("📊 Average Risk Score Across All Tests", f"{avg_risk:.2f}")
+    avg_risk = st.session_state.df['risk_score_numeric'].mean()
+    st.metric("📊 Average Risk Score Across All Tests", f"{avg_risk:.2f}%")
 
 # ================================================
 # RESULTS
 # ================================================
 with tab2:
     if not st.session_state.df.empty:
-        st.dataframe(st.session_state.df, use_container_width=True)  # Enhanced: Use correct parameter
+        # Display risk_score as percentage
+        display_df = st.session_state.df.drop(columns=['risk_score_numeric'])  # Hide numeric column
+        st.dataframe(display_df, use_container_width=True)
         st.download_button(
             "Download CSV",
             st.session_state.df.to_csv(index=False),
@@ -280,7 +285,8 @@ with tab2:
         st.subheader("Custom Prompt Results")
         custom_df = st.session_state.df[st.session_state.df['prompt_type'] == 'Custom']
         if not custom_df.empty:
-            st.dataframe(custom_df, use_container_width=True)
+            custom_display_df = custom_df.drop(columns=['risk_score_numeric'])
+            st.dataframe(custom_display_df, use_container_width=True)
         else:
             st.info("No custom prompt results available.")
 
@@ -290,16 +296,16 @@ with tab2:
 with tab3:
     if not st.session_state.df.empty:
         df = st.session_state.df.copy()
-        max_risk = df['risk_score'].max()
+        max_risk = df['risk_score_numeric'].max()
 
         # Scatter with gradient + size
         color_map = {"Baseline": "lightblue", "Mutated": "orange", "Custom": "red"}
         scatter = px.scatter(
             df,
             x="prompt_id",
-            y="risk_score",
+            y="risk_score_numeric",
             color="prompt_type",
-            size="risk_score",
+            size="risk_score_numeric",
             size_max=35,
             color_discrete_map=color_map,
             hover_data=["model", "prompt", "response", "risk_types"]
@@ -307,53 +313,56 @@ with tab3:
         scatter.update_traces(
             marker=dict(
                 sizemode='area',
-                opacity=df['risk_score']/max_risk*0.8 + 0.2
+                opacity=df['risk_score_numeric']/max_risk*0.8 + 0.2
             )
         )
         scatter.update_layout(
             title="🔥 LLM Vulnerabilities Scatter",
             xaxis_title="Prompt Index",
-            yaxis_title="Risk Score",
+            yaxis_title="Risk Score (%)",
             legend_title="Prompt Type"
         )
-        st.plotly_chart(scatter, use_container_width=True)  # Enhanced: Use correct parameter
+        st.plotly_chart(scatter, use_container_width=True)
 
         # Line chart for risk trend per model
-        trend = df.groupby(["prompt_id","model"])["risk_score"].mean().reset_index()
+        trend = df.groupby(["prompt_id","model"])["risk_score_numeric"].mean().reset_index()
         line = px.line(
             trend,
             x="prompt_id",
-            y="risk_score",
+            y="risk_score_numeric",
             color="model",
             markers=True,
             title="📈 Risk Trend per Model"
         )
-        st.plotly_chart(line, use_container_width=True)  # Enhanced: Use correct parameter
+        line.update_layout(yaxis_title="Risk Score (%)")
+        st.plotly_chart(line, use_container_width=True)
 
         # Heatmap of counts per model/risk type
         heatmap_data = df.pivot_table(
             index='model',
             columns='risk_types',
-            values='risk_score',
+            values='risk_score_numeric',
             aggfunc='count',
             fill_value=0
         )
         heatmap = px.imshow(
             heatmap_data,
-            color_continuous_scale='Viridis',
+            color_continuous_scale='RdYlGn_r',  # More attractive: red for high, green for low (reversed)
             labels=dict(x="Risk Type", y="Model", color="Count"),
             text_auto=True,
             title="🗺️ Vulnerability Heatmap"
         )
-        st.plotly_chart(heatmap, use_container_width=True)  # Enhanced: Use correct parameter
+        st.plotly_chart(heatmap, use_container_width=True)
 
         # Enhanced: Add bar chart for vulnerability status
+        status_color_map = {"Vulnerable": "red", "Resistant": "green"}  # More attractive colors
         vuln_bar = px.bar(
             df,
             x="model",
             color="vulnerability_status",
             title="🛡️ Vulnerability Status per Model",
-            labels={"vulnerability_status": "Status"}
+            labels={"vulnerability_status": "Status"},
+            color_discrete_map=status_color_map
         )
         st.plotly_chart(vuln_bar, use_container_width=True)
 
@@ -364,10 +373,10 @@ with tab3:
             custom_bar = px.bar(
                 custom_df,
                 x="model",
-                y="risk_score",
+                y="risk_score_numeric",
                 color="risk_types",
                 title="📊 Risk Scores for Custom Prompt per Model",
-                labels={"risk_types": "Risk Types"}
+                labels={"risk_types": "Risk Types", "risk_score_numeric": "Risk Score (%)"}
             )
             st.plotly_chart(custom_bar, use_container_width=True)
         else:
@@ -377,4 +386,6 @@ with tab3:
 # SCORING DETAILS
 # ================================================
 with tab4:
-    st.dataframe(pd.DataFrame(RISK_SCORES.items(), columns=["Risk Type","Score"]), use_container_width=True)  # Enhanced: Use correct parameter
+    # Update RISK_SCORES to percentages for display
+    risk_scores_df = pd.DataFrame([(k, f"{v * 20}%") for k, v in RISK_SCORES.items()], columns=["Risk Type", "Score"])
+    st.dataframe(risk_scores_df, use_container_width=True)
