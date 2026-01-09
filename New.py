@@ -54,13 +54,10 @@ if GEMINI_KEY:
 # MODELS
 # =========================================================
 MODELS = {}
-
 if openai_client:
     MODELS["GPT-4o-mini (OpenAI)"] = ("openai", "gpt-4o-mini")
-
 if groq_client:
     MODELS["LLaMA-3.1-8B (Groq)"] = ("groq", "llama-3.1-8b-instant")
-
 if gemini_client:
     MODELS["Gemini-1.5-Flash (FREE)"] = ("gemini", "models/gemini-1.5-flash")
 
@@ -188,7 +185,7 @@ with tab1:
     run = st.button("🚀 Run Scan")
 
 # =========================================================
-# EXECUTION (CORRECT THREAD SAFE VERSION)
+# EXECUTION
 # =========================================================
 if "df" not in st.session_state:
     st.session_state.df = pd.DataFrame()
@@ -249,32 +246,114 @@ with tab2:
         )
 
 # =========================================================
-# VISUALIZATIONS
+# VISUALIZATIONS (ATTRACTIVE)
 # =========================================================
 with tab3:
     if not st.session_state.df.empty:
-        df = st.session_state.df
+        df = st.session_state.df.copy()
+
+        # --------------------------------------------
+        # 1️⃣ Risk Severity Bubble Chart
+        # --------------------------------------------
+        st.subheader("📊 Vulnerability Severity Map")
 
         scatter = px.scatter(
             df,
             x="prompt_id",
             y="risk_score",
-            color="risk_types",
+            color="risk_score",
             size="risk_score",
-            hover_data=["model"]
+            color_continuous_scale=[
+                (0.0, "#2ECC71"),
+                (0.5, "#F1C40F"),
+                (1.0, "#E74C3C")
+            ],
+            hover_data={
+                "prompt": True,
+                "model": True,
+                "risk_types": True,
+                "risk_score": True,
+                "prompt_id": False
+            },
+            height=500
         )
+
+        scatter.update_layout(
+            title="LLM Vulnerability Exposure by Prompt",
+            xaxis_title="Prompt Index",
+            yaxis_title="Risk Score (1–5)",
+            coloraxis_colorbar=dict(
+                title="Severity",
+                tickvals=[1, 3, 5],
+                ticktext=["Low", "Medium", "Critical"]
+            ),
+            yaxis=dict(range=[0, 5.5]),
+        )
+
         st.plotly_chart(scatter, use_container_width=True)
 
+        # --------------------------------------------
+        # 2️⃣ Model vs Risk Type Heatmap (Annotated)
+        # --------------------------------------------
+        st.subheader("🔥 Risk Distribution Heatmap")
+
+        heat_df = df.pivot_table(
+            index="model",
+            columns="risk_types",
+            values="risk_score",
+            aggfunc="count",
+            fill_value=0
+        )
+
         heatmap = px.imshow(
-            df.pivot_table(
-                index="model",
-                columns="risk_types",
-                values="risk_score",
-                aggfunc="count",
-                fill_value=0
+            heat_df,
+            text_auto=True,
+            color_continuous_scale="Reds",
+            aspect="auto",
+            labels=dict(
+                x="Risk Type",
+                y="Model",
+                color="Findings Count"
             )
         )
+
+        heatmap.update_layout(
+            title="Risk Concentration Across Models",
+            height=450
+        )
+
         st.plotly_chart(heatmap, use_container_width=True)
+
+        # --------------------------------------------
+        # 3️⃣ Average Risk Score per Model (Bar Chart)
+        # --------------------------------------------
+        st.subheader("🏆 Model Risk Comparison")
+
+        model_risk = (
+            df.groupby("model")["risk_score"]
+            .mean()
+            .reset_index()
+            .sort_values("risk_score", ascending=False)
+        )
+
+        bar = px.bar(
+            model_risk,
+            x="model",
+            y="risk_score",
+            color="risk_score",
+            color_continuous_scale="Reds",
+            text_auto=".2f",
+            height=400
+        )
+
+        bar.update_layout(
+            yaxis_title="Average Risk Score",
+            xaxis_title="Model",
+            yaxis=dict(range=[0, 5.5]),
+            title="Average Vulnerability Risk per Model"
+        )
+
+        st.plotly_chart(bar, use_container_width=True)
 
 # =========================================================
 # SCORING DETAILS
